@@ -1,5 +1,6 @@
 #%%
 from cgi import test
+from fileinput import filename
 import torch
 from torch_geometric.data import Dataset, Data
 import pandas as pd
@@ -13,14 +14,16 @@ from mne.connectivity import spectral_connectivity
 
 
 class MyOwnDataset(Dataset):
-    def __init__(self, root, test=False, transform=None, pre_transform=None):
+    def __init__(self, root, ts_filename, rt_filename, test=False, transform=None, pre_transform=None):
         #self.test = test
-        #self.filename = filename
+        self.ts_filename = ts_filename
+        self.rt_filename = rt_filename
+        self.test = test
         super(MyOwnDataset, self).__init__(root, transform, pre_transform)
 
     @property
     def raw_file_names(self):
-        return ["2.txt", "3.txt", "4.txt", "5.txt", "rt_2.txt"]
+        return [self.ts_filename, self.rt_filename]
 
     @property
     def processed_file_names(self):
@@ -37,7 +40,7 @@ class MyOwnDataset(Dataset):
 
     def process(self):
         self.data = np.loadtxt(self.raw_paths[0])
-        all_labels = self._get_labels(4)
+        all_labels = self._get_labels(1)
         count = 0
         for index in range(1, len(self.data[0])):
             if index % 1500 == 0:
@@ -52,10 +55,14 @@ class MyOwnDataset(Dataset):
                             edge_index=edge_index,
                             edge_attr=edge_feats,
                             y=label)
-                
-                torch.save(data,
-                        os.path.join(self.processed_dir,
-                        f'data_{count}.pt'))
+                if self.test:
+                    torch.save(data,
+                            os.path.join(self.processed_dir,
+                                f'data_test_{count-1}.pt'))
+                else:
+                    torch.save(data,
+                            os.path.join(self.processed_dir,
+                                f'data_{count-1}.pt'))
 
     def _get_node_features(self, data_seg):
         # set the sampling frequency
@@ -68,9 +75,7 @@ class MyOwnDataset(Dataset):
         #delta, theta, alpha, beta frequency bands
         band_freqs = [0.5, 4, 8, 12, 30]
         all_channel_feats = []
-
         count = 0
-
         #goes through each channel (node) and creates an length 4 array of the relative power in each
         #frequency band
         #Then it appends each array to a larger array consisting of the 30 node features
@@ -129,20 +134,8 @@ class MyOwnDataset(Dataset):
         return torch.tensor(label, dtype=torch.float64)
 
     def len(self):
-        return self.data.shape[0]
+        return len(self.data)
 
     def get(self, idx):
         data = torch.load(os.path.join(self.processed_dir, f'data_{idx}.pt'))
         return data
-
-    
-#%%
-dataset = MyOwnDataset(root="data/")
-# %%
-dataset[1]
-# %%
-print(dataset[1].edge_index)
-print(dataset[1].x)
-print(dataset[1].edge_attr)
-print(dataset[1].y)
-# %%
