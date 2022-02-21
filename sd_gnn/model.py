@@ -44,14 +44,3 @@ class GNN(torch.nn.Module):
         out = self.linear(out)
         
         return out
-        
-        
-"""
-class GAT(torch.nn.Module):
-    def __init__(self, feature_size):
-        super(GNN, self).__init__()
-        num_classes = 2
-        embedding_size = 1024
-
-        self.conv1 = GATConv
-"""
