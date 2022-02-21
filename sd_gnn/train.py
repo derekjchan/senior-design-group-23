@@ -47,10 +47,6 @@ for epoch in range(100):
         optimizer.step()
 
         loss_list.append(loss.item())
-        print(len(pred.cpu().detach().numpy()))
+        print(pred.cpu().detach().numpy())
         print(batch.y.cpu().detach().numpy())
         print(f"Epoch: {epoch}, Batch: {i}, Loss: {loss.item()}")
-
-# %%
-for i, batch in enumerate(train_loader):
-    print(batch)
