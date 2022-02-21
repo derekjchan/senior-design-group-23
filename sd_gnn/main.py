@@ -1,6 +1,7 @@
 #%%
 from cgi import test
 from fileinput import filename
+from http.client import NOT_IMPLEMENTED
 import torch
 from torch_geometric.data import Dataset, Data
 import pandas as pd
@@ -8,6 +9,7 @@ import numpy as np
 import os
 from scipy import signal
 from scipy import sparse
+import networkx as nx
 from scipy.integrate import simps
 from mne.connectivity import spectral_connectivity
 
@@ -27,13 +29,13 @@ class MyOwnDataset(Dataset):
 
     @property
     def processed_file_names(self):
-        self.data = pd.read_csv(self.raw_paths[0]).reset_index()
+        #len_lab = len(self._get_labels(1))
 
         #if self.test:
-        #    return [f'data_test_{i}.pt' for i in list(self.data.index)]
+        #    return [f'data_test_{i}.pt' for i in range(len_lab)]
         #else:
-        #    return [f'data_{i}.pt' for i in list(self.data.index)]
-        return "not_implemented.pt"
+        #    return [f'data_{i}.pt' for i in range(len_lab)]
+        return "NOT_IMPLEMENTED"
 
     def download(self):
         pass
@@ -92,7 +94,8 @@ class MyOwnDataset(Dataset):
             all_channel_feats.append(channel_feats)
         #converts to list to np array and then returns a pytorch tensor
         all_channel_feats = np.asarray(all_channel_feats)
-        return torch.tensor(all_channel_feats, dtype=torch.float)
+        all_channel_feats = torch.tensor(all_channel_feats, dtype=torch.float)
+        return all_channel_feats
 
     def _get_edge_features(self, data_seg):
         #need to do this step in order for the spectral_connectivity function to work
@@ -110,7 +113,8 @@ class MyOwnDataset(Dataset):
 
             spec_coh_matrix[channel_idx, :] = spec_coh_values
         edge_attr = spec_coh_matrix.flatten()
-        return torch.tensor(edge_attr, dtype=torch.float)
+        edge_attr = torch.tensor(edge_attr, dtype=torch.float)
+        return edge_attr
 
     def _get_adjacency_info(self, num_nodes):
         # Initialize edge index matrix
@@ -125,17 +129,38 @@ class MyOwnDataset(Dataset):
         neighbors = []
         for node in range(num_nodes):
             neighbors.append(list(np.arange(node)) + list(np.arange(node+1, num_nodes)))
-        E[1, :] = torch.Tensor([item for sublist in neighbors for item in sublist])
+        E[1, :] = torch.tensor([item for sublist in neighbors for item in sublist], dtype=torch.long)
 
         return E
+        """
+        g = nx.complete_graph(num_nodes)
+        p = nx.to_pandas_edgelist(g)
+        s = list(p.source)
+        t = list(p.target)
+        tens = torch.tensor([s, t], dtype=torch.long)
+
+        return tens
+        """
 
     def _get_labels(self, num):
         label = np.loadtxt(self.raw_paths[num])
-        return torch.tensor(label, dtype=torch.float64)
+        label = torch.tensor(label, dtype=torch.float)
+        return label
 
     def len(self):
-        return len(self.data)
-
+        #col_len = self._get_labels(1).shape
+        label = np.loadtxt(self.raw_paths[1])
+        return label.shape[0]
+ 
     def get(self, idx):
-        data = torch.load(os.path.join(self.processed_dir, f'data_{idx}.pt'))
+        if self.test:
+            data = torch.load(os.path.join(self.processed_dir, 
+                                 f'data_test_{idx}.pt'))
+        else:
+            data = torch.load(os.path.join(self.processed_dir, 
+                                 f'data_{idx}.pt'))        
         return data
+
+# %%
+
+# %%
