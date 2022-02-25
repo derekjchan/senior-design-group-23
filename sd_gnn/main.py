@@ -12,20 +12,24 @@ from scipy import sparse
 import networkx as nx
 from scipy.integrate import simps
 from mne.connectivity import spectral_connectivity
-
+from tqdm.notebook import tqdm
+import warnings
+import random
 
 
 class MyOwnDataset(Dataset):
-    def __init__(self, root, ts_filename, rt_filename, test=False, transform=None, pre_transform=None):
+    def __init__(self, root, ts_files, rt_files, test=False, transform=None, pre_transform=None, classification=False):
         #self.test = test
-        self.ts_filename = ts_filename
-        self.rt_filename = rt_filename
+        self.ts_files = ts_files
+        self.rt_files = rt_files
         self.test = test
+        self.filenames = self.ts_files + self.rt_files
+        self.mode = classification
         super(MyOwnDataset, self).__init__(root, transform, pre_transform)
 
     @property
     def raw_file_names(self):
-        return [self.ts_filename, self.rt_filename]
+        return self.filenames
 
     @property
     def processed_file_names(self):
@@ -41,30 +45,79 @@ class MyOwnDataset(Dataset):
         pass
 
     def process(self):
-        self.data = np.loadtxt(self.raw_paths[0])
-        all_labels = self._get_labels(1)
-        count = 0
-        for index in range(1, len(self.data[0])):
-            if index % 1500 == 0:
-                data_seg = self.data[:, index-1500:index]
-                node_feats = self._get_node_features(data_seg)
-                edge_feats = self._get_edge_features(data_seg)
-                edge_index = self._get_adjacency_info(30)
-                label = all_labels[count]
-                count += 1
-
-                data = Data(x=node_feats,
-                            edge_index=edge_index,
-                            edge_attr=edge_feats,
-                            y=label)
-                if self.test:
-                    torch.save(data,
-                            os.path.join(self.processed_dir,
-                                f'data_test_{count-1}.pt'))
-                else:
-                    torch.save(data,
-                            os.path.join(self.processed_dir,
-                                f'data_{count-1}.pt'))
+        #warnings.filterwarnings("ignore")
+        name_idx = 0
+        self.total_len = 0
+        rand_list = [0,1]
+        for ts_file, rt_file in tqdm(zip(self.ts_files, self.rt_files), desc="Files", total=len(self.ts_files)):
+            if self.mode:
+                idx_lim = 2
+                count = 2
+            else:
+                idx_lim = 0
+                count = 0
+            ts_path = os.path.join(self.raw_dir, ts_file)
+            rt_path = os.path.join(self.raw_dir, rt_file)
+            self.data = np.loadtxt(ts_path)
+            all_labels = self._get_labels(rt_path)
+            #count = 0
+            event_num = 0
+            max_idx = len(self.data[0])/1501
+            for index in tqdm(range(1, len(self.data[0])), desc="Within file", leave=False):
+                if index%1501 == 0 and event_num >= idx_lim and event_num <= max_idx-idx_lim:
+                    data_seg = self.data[:, index-1500:index]
+                    node_feats = self._get_node_features(data_seg)
+                    edge_feats = self._get_edge_features(data_seg)
+                    edge_index = self._get_adjacency_info(30)
+                    #label = all_labels[count]
+                    #label = 0
+                    if self.mode:
+                        label = self._get_class(idx=count, all_labels=all_labels)
+                        #print("entered first")
+                    else:
+                        label = all_labels[count]
+                        #print("entered second")
+                    #print(label)
+                        
+                    count += 1
+                    rand_num = random.choice(rand_list)
+                    if label is not None:
+                        #print(name_idx)
+                        #edge_feats = 0
+                        data = Data(x=node_feats,
+                                    edge_index=edge_index,
+                                    edge_attr=edge_feats,
+                                    y=label)
+                        if self.test:
+                            torch.save(data,
+                                    os.path.join(self.processed_dir,
+                                        f'data_test_{name_idx}.pt'))
+                        else:
+                            torch.save(data,
+                                    os.path.join(self.processed_dir,
+                                        f'data_{name_idx}.pt'))
+                        name_idx += 1
+                    """
+                    count += 1
+                    #label = 0
+                    edge_feats = 0
+                    data = Data(x=node_feats,
+                                edge_index=edge_index,
+                                edge_attr=edge_feats,
+                                y=label)
+                    if self.test:
+                        torch.save(data,
+                                os.path.join(self.processed_dir,
+                                    f'data_test_{name_idx}.pt'))
+                    else:
+                        torch.save(data,
+                                os.path.join(self.processed_dir,
+                                    f'data_{name_idx}.pt'))
+                    name_idx += 1
+                    """
+                if index%1501 == 0:
+                    event_num += 1
+        self.total_len = name_idx
 
     def _get_node_features(self, data_seg):
         # set the sampling frequency
@@ -75,7 +128,7 @@ class MyOwnDataset(Dataset):
         freqs, psd = signal.welch(data_seg, sf, nperseg=win)
         freq_res = freqs[1] - freqs[0]
         #delta, theta, alpha, beta frequency bands
-        band_freqs = [0.5, 4, 8, 12, 30]
+        band_freqs = [0.5, 4, 7.5, 13, 16, 30, 40]
         all_channel_feats = []
         count = 0
         #goes through each channel (node) and creates an length 4 array of the relative power in each
@@ -108,7 +161,7 @@ class MyOwnDataset(Dataset):
             #not including self loops
             spec_conn, freqs, times, n_epoch, n_tapers = spectral_connectivity(data=transf_dat, method='coh', 
                 indices = ([channel_idx]*29, final_nodes), 
-                sfreq = 500, fmin=1.0, fmax=40.0, faverage=True, verbose=False)
+                sfreq = 500, fmin=5, fmax=40.0, faverage=True, verbose=False)
             spec_coh_values = np.squeeze(spec_conn)
 
             spec_coh_matrix[channel_idx, :] = spec_coh_values
@@ -142,15 +195,36 @@ class MyOwnDataset(Dataset):
         return tens
         """
 
-    def _get_labels(self, num):
-        label = np.loadtxt(self.raw_paths[num])
+    def _get_labels(self, path):
+        label = np.loadtxt(path)
         label = torch.tensor(label, dtype=torch.float)
         return label
 
+    def _get_class(self, idx, all_labels):
+        global_rt = sum(all_labels[idx-2:idx+3])/5
+        local_rt = all_labels[idx]
+        if global_rt >= 1.5 and local_rt >= 1.5:
+            alertness = np.asarray([0])
+            #print("class 1")
+            return torch.tensor(alertness, dtype=torch.int64)
+        elif global_rt <= 0.62 and local_rt <= 0.62:
+            alertness = np.asarray([1])
+            #print("class 2")
+            return torch.tensor(alertness, dtype=torch.int64)
+        else:
+            return None
+
     def len(self):
         #col_len = self._get_labels(1).shape
-        label = np.loadtxt(self.raw_paths[1])
-        return label.shape[0]
+        """
+        total_len = 0
+        for file in self.rt_files:
+            curr_file = os.path.join(self.raw_dir, file)
+            label = np.loadtxt(curr_file)
+            curr_len = label.shape[0]
+            total_len = total_len + curr_len - 4
+            """
+        return self.total_len#total_len
  
     def get(self, idx):
         if self.test:
@@ -160,7 +234,4 @@ class MyOwnDataset(Dataset):
             data = torch.load(os.path.join(self.processed_dir, 
                                  f'data_{idx}.pt'))        
         return data
-
-# %%
-
 # %%
